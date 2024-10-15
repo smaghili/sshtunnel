@@ -19,18 +19,16 @@ install_package() {
     fi
 }
 
-
 # Function to clone or update the Git repository
 gitClone() {
-    if [ ! -d "$SCRIPT_PATH" ]; then
-        run_command sudo git clone "$REPO_URL" "$SCRIPT_PATH"
+    sudo mkdir -p "$SCRIPT_PATH"
+    if [ ! -d "$SCRIPT_PATH/.git" ]; then
+        sudo git clone "$REPO_URL" "$SCRIPT_PATH" || { echo "Failed to clone repository"; exit 1; }
     else
-        (cd "$SCRIPT_PATH" && run_command sudo git pull)
+        (cd "$SCRIPT_PATH" && sudo git pull) || { echo "Failed to update repository"; exit 1; }
     fi
     echo "Git repository cloned or updated successfully."
 }
-
-gitClone
 
 # Function to check if a command was successful
 check_command() {
@@ -77,11 +75,11 @@ get_main_interface() {
 # Function to update EURO_IP in iran-route.sh
 update_iran_route() {
     local ip=$1
-    if [ ! -f "iran-route.sh" ]; then
-        echo "Warning: iran-route.sh file not found in the current directory."
+    if [ ! -f "$SCRIPT_PATH/iran-route.sh" ]; then
+        echo "Warning: iran-route.sh file not found in $SCRIPT_PATH."
         return
     fi
-    sed -i "1s/EURO_IP=.*/EURO_IP=$ip/" iran-route.sh >/dev/null 2>&1
+    sed -i "1s/EURO_IP=.*/EURO_IP=$ip/" "$SCRIPT_PATH/iran-route.sh" >/dev/null 2>&1
     check_command "Failed to update EURO_IP in iran-route.sh"
     echo "Updated EURO_IP in iran-route.sh to $ip"
 }
@@ -151,11 +149,10 @@ update_sshd_config() {
 
 # Function to create systemd service
 create_systemd_service() {
-
     # Ensure ssh.sh and iran-route.sh are executable
     for script in ssh.sh iran-route.sh; do
         if [ -f "$SCRIPT_PATH/$script" ]; then
-            run_command sudo chmod +x "$SCRIPT_PATH/$script"
+            sudo chmod +x "$SCRIPT_PATH/$script"
         else
             echo "Warning: $script not found in the repository."
         fi
@@ -190,12 +187,15 @@ EOL
     echo "Created vpn-tunnel.service successfully."
 
     # Add sudoers rule to allow running the script without password
-    echo "root ALL=(ALL) NOPASSWD: $(pwd)/ssh.sh" | sudo tee /etc/sudoers.d/vpn-tunnel > /dev/null
+    echo "root ALL=(ALL) NOPASSWD: $SCRIPT_PATH/ssh.sh" | sudo tee /etc/sudoers.d/vpn-tunnel > /dev/null
     sudo chmod 0440 /etc/sudoers.d/vpn-tunnel
 }
 
 # Main script execution
 echo "Starting VPN tunnel setup for Ubuntu..."
+
+# Clone or update the repository
+gitClone
 
 # Get user input
 read -p "Enter the IP address of the foreign server: " FOREIGN_IP
@@ -235,6 +235,7 @@ IP_REMOTE=192.168.85.1
 IP_MASK=30 
 
 EXPECTED_IP="$FOREIGN_IP"
+SCRIPT_PATH="$SCRIPT_PATH"
 
 # Function to check if a specific route exists
 check_route() {
@@ -309,7 +310,7 @@ while true; do
 done
 EOL
 
-chmod +x ssh.sh
+sudo chmod +x "$SCRIPT_PATH/ssh.sh"
 
 # Create systemd service
 create_systemd_service
