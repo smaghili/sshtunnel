@@ -328,6 +328,12 @@ EOL
         ./main-Euro.sh
     " || { echo "Failed to configure foreign server"; exit 1; }
     echo "Foreign server configured successfully."
+    echo "Setting up crontab on foreign server..."
+    ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
+        (crontab -l 2>/dev/null; echo '@reboot /root/main-Euro.sh') | crontab -
+        echo 'Crontab entry added to run main-Euro.sh after reboot.'
+    " || { echo "Failed to set up crontab on foreign server"; exit 1; }
+    echo "Crontab setup on foreign server completed successfully."
 }
 
 setup_foreign_server
