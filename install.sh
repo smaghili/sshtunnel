@@ -310,6 +310,26 @@ while true; do
 done
 EOL
 
+setup_foreign_server() {
+    echo "Configuring foreign server..."
+    ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
+        cat > main-Euro.sh << EOL
+#!/bin/bash
+
+iptables -F || true
+iptables -t nat -F || true
+
+iptables -t nat -A POSTROUTING -o $FOREIGN_INTERFACE -j MASQUERADE || true
+EOL
+
+        chmod +x main-Euro.sh
+        ./main-Euro.sh
+    " || { echo "Failed to configure foreign server"; exit 1; }
+    echo "Foreign server configured successfully."
+}
+
+setup_foreign_server
+
 sudo chmod +x "$SCRIPT_PATH/ssh.sh"
 
 # Create systemd service
