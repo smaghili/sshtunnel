@@ -174,7 +174,9 @@ After=network.target
 [Service]
 ExecStart=/bin/bash $SCRIPT_PATH/ssh.sh
 Restart=on-failure
-RestartSec=1
+RestartSec=30
+StartLimitInterval=360
+StartLimitBurst=5
 User=root
 WorkingDirectory=$SCRIPT_PATH
 SyslogIdentifier=vpn-tunnel
