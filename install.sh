@@ -3,6 +3,12 @@
 REPO_URL="https://github.com/smaghili/sshtunnel.git"
 SCRIPT_PATH="/opt/sshtunnel"
 
+# Default values
+DEFAULT_TUN_NUMBER=9
+DEFAULT_IP_LOCAL="192.168.85.2"
+DEFAULT_IP_REMOTE="192.168.85.1"
+DEFAULT_IP_MASK=30
+
 # Function to check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -28,6 +34,153 @@ gitClone() {
         (cd "$SCRIPT_PATH" && sudo git pull) || { echo "Failed to update repository"; exit 1; }
     fi
     echo "Git repository cloned or updated successfully."
+}
+
+# Function to get next IP address
+get_next_ip() {
+    local ip=$1
+    # Get the first three octets
+    local prefix=$(echo $ip | cut -d. -f1-3)
+    # Get the last octet
+    local last_octet=$(echo $ip | cut -d. -f4)
+    # Increment the last octet
+    local next_octet=$((last_octet + 1))
+    # Return the complete IP
+    echo "${prefix}.${next_octet}"
+}
+
+# Function to check if tunnel or IP exists on remote server
+check_tunnel_and_ip() {
+    local tunnel_num=$1
+    local remote_ip=$2
+    local exists_tunnel=false
+    local exists_ip=false
+    
+    # Check if tunnel exists
+    if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link show tun$tunnel_num" >/dev/null 2>&1; then
+        exists_tunnel=true
+    fi
+    
+    # Check if IP exists
+    if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip addr | grep -q '$remote_ip'"; then
+        exists_ip=true
+    fi
+    
+    echo "$exists_tunnel $exists_ip"
+}
+
+# Function to find and remove tunnel with specific IP
+cleanup_ip_and_tunnel() {
+    local remote_ip=$1
+    # Find and remove tunnel that has this IP
+    ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
+        # Find tunnel interface that has this IP
+        tunnel_dev=\$(ip addr show | grep '$remote_ip' | awk '{print \$NF}')
+        if [ ! -z \"\$tunnel_dev\" ]; then
+            echo \"Found IP $remote_ip on interface \$tunnel_dev\"
+            # Remove the tunnel interface
+            ip link del \$tunnel_dev 2>/dev/null || true
+            echo \"Removed tunnel \$tunnel_dev\"
+        fi
+    "
+}
+
+# Function to get tunnel number with validation
+get_tunnel_number() {
+    local tunnel_number
+    while true; do
+        read -p "Enter tunnel number (default: $DEFAULT_TUN_NUMBER): " TUN_INPUT
+        tunnel_number=${TUN_INPUT:-$DEFAULT_TUN_NUMBER}
+        
+        # Verify the tunnel number is valid
+        if ! [[ "$tunnel_number" =~ ^[0-9]+$ ]]; then
+            echo "Please enter a valid number"
+            continue
+        fi
+        
+        # Check if tunnel exists
+        if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link show tun$tunnel_number" >/dev/null 2>&1; then
+            echo "Tunnel number $tunnel_number already exists on the remote server."
+            read -p "Do you want to replace it? (y/n): " replace
+            if [[ $replace =~ ^[Yy]$ ]]; then
+                ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link del tun$tunnel_number" 2>/dev/null || true
+                break
+            fi
+        else
+            break
+        fi
+    done
+    TUNNEL_NUMBER="$tunnel_number"
+}
+
+# Function to get remote IP with validation
+get_remote_ip() {
+    local temp_ip
+    while true; do
+        read -p "Enter remote IP (default: $DEFAULT_IP_REMOTE): " IP_REMOTE_INPUT
+        temp_ip=${IP_REMOTE_INPUT:-$DEFAULT_IP_REMOTE}
+        
+        # Verify it's a valid IP address format
+        if ! [[ "$temp_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Please enter a valid IP address"
+            continue
+        fi
+        
+        # Check if IP exists
+        if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip addr | grep -q '$temp_ip'"; then
+            echo "Remote IP $temp_ip already exists on the remote server."
+            read -p "Do you want to replace it? (y/n): " replace
+            if [[ $replace =~ ^[Yy]$ ]]; then
+                echo "Removing existing tunnel with IP $temp_ip..."
+                # First find and remove tunnel with this IP
+                ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
+                    for iface in \$(ip addr show | grep '$temp_ip' | awk '{print \$NF}'); do
+                        ip link del \$iface 2>/dev/null || true
+                    done
+                "
+                break
+            fi
+        else
+            break
+        fi
+    done
+    REMOTE_IP="$temp_ip"
+}
+
+# Modified installation type selection function
+select_installation_type() {
+    echo "Please select installation type:"
+    echo "1) Easy Install (Default Settings)"
+    echo "2) Custom Install"
+    read -p "Enter your choice (1 or 2): " INSTALL_TYPE
+    
+    case $INSTALL_TYPE in
+        1)
+            echo "Easy installation selected..."
+            TUN_NUMBER=$DEFAULT_TUN_NUMBER
+            IP_REMOTE=$DEFAULT_IP_REMOTE
+            ;;
+        2)
+            echo "Custom installation selected..."
+            # Get and validate tunnel number
+            get_tunnel_number
+            TUN_NUMBER=$TUNNEL_NUMBER
+            
+            # Get and validate remote IP
+            get_remote_ip
+            IP_REMOTE=$REMOTE_IP
+            ;;
+        *)
+            echo "Invalid option. Using easy installation..."
+            TUN_NUMBER=$DEFAULT_TUN_NUMBER
+            IP_REMOTE=$DEFAULT_IP_REMOTE
+            ;;
+    esac
+    
+    # Calculate local IP
+    IP_LOCAL=$(get_next_ip "$IP_REMOTE")
+    echo "Local IP will be set to: $IP_LOCAL"
+    IP_MASK=$DEFAULT_IP_MASK
 }
 
 # Function to check if a command was successful
@@ -118,7 +271,7 @@ net.core.netdev_max_backlog = 2048
                     echo \"\$line\" | sudo tee -a /etc/sysctl.conf >/dev/null 2>&1
                 fi
             done
-        " >/dev/null 2>&1
+        "
     fi
     
     check_command "Failed to update sysctl.conf on $server"
@@ -141,7 +294,7 @@ update_sshd_config() {
             fi
             sudo sysctl -p >/dev/null 2>&1
             sudo systemctl restart ssh >/dev/null 2>&1
-        " >/dev/null 2>&1
+        "
     fi
     
     check_command "Failed to update sshd_config on $server"
@@ -193,48 +346,20 @@ EOL
     sudo chmod 0440 /etc/sudoers.d/vpn-tunnel
 }
 
-# Main script execution
-echo "Starting VPN tunnel setup for Ubuntu..."
-
-# Clone or update the repository
-gitClone
-
-# Get user input
-read -p "Enter the IP address of the foreign server: " FOREIGN_IP
-read -p "Enter the SSH port of the foreign server: " SSH_PORT
-
-# Setup SSH keys
-echo "Setting up SSH keys..."
-setup_ssh_keys "root@$FOREIGN_IP" "$SSH_PORT"
-
-# Update EURO_IP in iran-route.sh
-update_iran_route "$FOREIGN_IP"
-
-# Get main network interfaces
-LOCAL_INTERFACE=$(get_main_interface "localhost")
-FOREIGN_INTERFACE=$(get_main_interface "root@$FOREIGN_IP")
-
-# Update sysctl.conf and sshd_config on both servers
-echo "Updating system configurations..."
-update_sysctl_conf "localhost"
-update_sysctl_conf "root@$FOREIGN_IP"
-update_sshd_config "localhost"
-update_sshd_config "root@$FOREIGN_IP"
-echo "System configurations updated successfully."
-
-# Create ssh.sh
-cat > "$SCRIPT_PATH/ssh.sh" << EOL
+# Function to create ssh.sh with custom values
+create_ssh_script() {
+    cat > "$SCRIPT_PATH/ssh.sh" << EOL
 #!/bin/bash
 
 set -e  # Exit immediately if a command exits with a non-zero status.
 
 HOST=$FOREIGN_IP
 HOST_PORT=$SSH_PORT
-TUN_LOCAL=9
-TUN_REMOTE=9 
-IP_LOCAL=192.168.85.2 
-IP_REMOTE=192.168.85.1 
-IP_MASK=30 
+TUN_LOCAL=$TUN_NUMBER
+TUN_REMOTE=$TUN_NUMBER
+IP_LOCAL=$IP_LOCAL
+IP_REMOTE=$IP_REMOTE
+IP_MASK=$IP_MASK
 
 EXPECTED_IP="$FOREIGN_IP"
 SCRIPT_PATH="$SCRIPT_PATH"
@@ -250,8 +375,8 @@ check_route() {
 
 setup_vpn() {
     echo "Setting up VPN tunnel..."
-    ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link del tun9" || true
-    sudo ip link del tun9 2>/dev/null || true
+    ssh -o StrictHostKeyChecking=no -p "\$HOST_PORT" "root@\$HOST" "ip link del tun\$TUN_REMOTE" || true
+    sudo ip link del tun\$TUN_LOCAL 2>/dev/null || true
     modprobe tun || true
     ssh -o StrictHostKeyChecking=no -w \${TUN_LOCAL}:\${TUN_REMOTE} -f \${HOST} -p \${HOST_PORT} "
       ip addr add \${IP_REMOTE}/\${IP_MASK} dev tun\${TUN_REMOTE} 2>/dev/null || true
@@ -281,13 +406,13 @@ setup_vpn() {
 
     ip route add \$EXPECTED_IP via \$(ip route | awk '/default/ {print \$3}') metric 1 || true
 
-    ip route add 0.0.0.0/1 via 192.168.85.1 || true
-    ip route add 128.0.0.0/1 via 192.168.85.1 || true
+    ip route add 0.0.0.0/1 via \$IP_REMOTE || true
+    ip route add 128.0.0.0/1 via \$IP_REMOTE || true
 
     LOCAL_INTERFACE=\$(ip route | grep default | awk '{print \$5}' | head -n1)
 
     iptables -t nat -A POSTROUTING -o \$LOCAL_INTERFACE -j MASQUERADE || true
-    iptables -t nat -A POSTROUTING -o tun9 -j MASQUERADE || true
+    iptables -t nat -A POSTROUTING -o tun\$TUN_LOCAL -j MASQUERADE || true
 
     echo "Firewall rules applied."
     echo "VPN setup process completed."
@@ -308,9 +433,12 @@ while true; do
         echo "VPN disconnected. Restarting immediately..."
         setup_vpn
     fi
-    sleep 30  # Minimal delay to prevent excessive CPU usage
+    sleep 30
 done
 EOL
+
+    sudo chmod +x "$SCRIPT_PATH/ssh.sh"
+}
 
 setup_foreign_server() {
     echo "Configuring foreign server..."
@@ -327,18 +455,52 @@ EOL
         chmod +x main-Euro.sh
         ./main-Euro.sh
     " || { echo "Failed to configure foreign server"; exit 1; }
+    
     echo "Foreign server configured successfully."
     echo "Setting up crontab on foreign server..."
     ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
         (crontab -l 2>/dev/null; echo '@reboot /root/main-Euro.sh') | crontab -
-        echo 'Crontab entry added to run main-Euro.sh after reboot.'
     " || { echo "Failed to set up crontab on foreign server"; exit 1; }
     echo "Crontab setup on foreign server completed successfully."
 }
 
-setup_foreign_server
+# Main script execution
+echo "Starting VPN tunnel setup for Ubuntu..."
 
-sudo chmod +x "$SCRIPT_PATH/ssh.sh"
+# Clone or update the repository
+gitClone
+
+# First get server details before anything else
+read -p "Enter the IP address of the foreign server: " FOREIGN_IP
+read -p "Enter the SSH port of the foreign server: " SSH_PORT
+
+# Setup SSH keys
+echo "Setting up SSH keys..."
+setup_ssh_keys "root@$FOREIGN_IP" "$SSH_PORT"
+
+# Now select installation type after we have FOREIGN_IP and SSH_PORT
+select_installation_type
+
+# Update EURO_IP in iran-route.sh
+update_iran_route "$FOREIGN_IP"
+
+# Get main network interfaces
+LOCAL_INTERFACE=$(get_main_interface "localhost")
+FOREIGN_INTERFACE=$(get_main_interface "root@$FOREIGN_IP")
+
+# Update sysctl.conf and sshd_config on both servers
+echo "Updating system configurations..."
+update_sysctl_conf "localhost"
+update_sysctl_conf "root@$FOREIGN_IP"
+update_sshd_config "localhost"
+update_sshd_config "root@$FOREIGN_IP"
+echo "System configurations updated successfully."
+
+# Create ssh.sh with custom values
+create_ssh_script
+
+# Setup foreign server
+setup_foreign_server
 
 # Create systemd service
 create_systemd_service
