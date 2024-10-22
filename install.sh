@@ -30,6 +30,13 @@ install_package() {
 uninstall_vpn() {
     echo "Uninstalling VPN tunnel..."
     
+    # Get tunnel number and IPs from ssh.sh if it exists
+    if [ -f "$SCRIPT_PATH/ssh.sh" ]; then
+        TUN_NUMBER=$(grep "TUN_LOCAL=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        REMOTE_IP=$(grep "HOST=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        SSH_PORT=$(grep "HOST_PORT=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+    fi
+    
     # Stop and disable the service
     if systemctl is-active --quiet $SERVICE_NAME; then
         echo "Stopping VPN service..."
@@ -50,20 +57,13 @@ uninstall_vpn() {
         sudo rm -f "/etc/sudoers.d/vpn-tunnel"
     fi
     
-    # Get tunnel number and IPs from ssh.sh if it exists
-    if [ -f "$SCRIPT_PATH/ssh.sh" ]; then
-        TUN_NUMBER=$(grep "TUN_LOCAL=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
-        REMOTE_IP=$(grep "HOST=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
-        SSH_PORT=$(grep "HOST_PORT=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
-    fi
-    
     # Remove tunnel interface if it exists
     if [ ! -z "$TUN_NUMBER" ]; then
         echo "Removing tunnel interface..."
         sudo ip link del "tun$TUN_NUMBER" 2>/dev/null || true
     fi
     
-    # Remove tunnel interface on remote server if possible
+    # Remove tunnel interface and configuration on remote server if possible
     if [ ! -z "$REMOTE_IP" ] && [ ! -z "$SSH_PORT" ]; then
         echo "Removing tunnel interface on remote server..."
         ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$REMOTE_IP" "
@@ -73,14 +73,21 @@ uninstall_vpn() {
             # Remove main-Euro.sh and its crontab entry
             rm -f /root/main-Euro.sh
             crontab -l | grep -v '@reboot /root/main-Euro.sh' | crontab -
+            
+            # Remove SSH authorized keys
+            rm -f ~/.ssh/authorized_keys
         " 2>/dev/null || true
-    fi
-    
-    # Remove SSH key for the remote server
-    if [ ! -z "$REMOTE_IP" ]; then
-        echo "Removing SSH key for remote server..."
+
+        # Remove known_hosts entry for the remote server
+        ssh-keygen -R "[$REMOTE_IP]:$SSH_PORT" 2>/dev/null || true
         ssh-keygen -R "$REMOTE_IP" 2>/dev/null || true
     fi
+    
+    # Remove all SSH keys and configurations
+    echo "Removing SSH keys and configurations..."
+    rm -f ~/.ssh/id_rsa*
+    rm -f ~/.ssh/known_hosts*
+    rm -f ~/.ssh/authorized_keys
     
     # Remove script directory
     if [ -d "$SCRIPT_PATH" ]; then
@@ -91,8 +98,8 @@ uninstall_vpn() {
     # Remove vpn-tunnel command
     sudo rm -f /usr/local/bin/vpn-tunnel
 
-    echo "VPN tunnel uninstallation completed successfully!"
-    exit 0
+    echo -e "\n\033[1;32m✓ VPN tunnel uninstallation completed!\033[0m"
+    echo -e "All configurations and SSH keys have been removed.\n"
 }
 
 # Function to create vpn-tunnel command
