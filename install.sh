@@ -665,16 +665,37 @@ case "$1" in
         sudo systemctl enable vpn-tunnel.service
         sudo systemctl start vpn-tunnel.service
 
-        # Check if the service started successfully
+# Check if the service started successfully
         if ! sudo systemctl is-active --quiet vpn-tunnel.service; then
-            echo "Warning: VPN service may not have started properly. Please check the logs with 'journalctl -u vpn-tunnel.service'"
-        else
-            echo "VPN service started successfully."
+            echo -e "\n\033[1;31m✗ Error: VPN service did not start properly.\033[0m"
+            echo -e "Please check the logs with: \033[1mjournalctl -u vpn-tunnel.service\033[0m\n"
+            exit 1
         fi
 
-        echo "VPN tunnel setup completed!"
-        echo "The VPN service is now configured to start automatically on boot and will be monitored continuously."
-        echo "You can check the status of the service with: sudo systemctl status vpn-tunnel.service"
-        echo "You can uninstall the VPN tunnel with: vpn-tunnel uninstall"
+        # If we get here, everything was successful
+        clear  # Clear the screen for final message
+        
+        # Print fancy completion banner
+        echo -e "\n\033[1;32m╔════════════════════════════════════════╗"
+        echo -e "║                                            ║"
+        echo -e "║      ✓ VPN Tunnel Setup Completed!        ║"
+        echo -e "║                                            ║"
+        echo -e "╚════════════════════════════════════════╝\033[0m\n"
+
+        # Print usage guide with nice formatting
+        echo -e "\033[1;34m┌─ Usage Guide ────────────────────────────┐\033[0m"
+        echo -e "\033[1;37m  Command:\033[0m vpn-tunnel [COMMAND]\n"
+        
+        echo -e "\033[1;34m┌─ Available Commands ──────────────────────┐\033[0m"
+        echo -e "  \033[1;33minstall\033[0m     │  Install VPN tunnel"
+        echo -e "  \033[1;33muninstall\033[0m   │  Remove VPN tunnel completely"
+        echo -e "  \033[1;33mstatus\033[0m      │  Show VPN tunnel status"
+        echo -e "  \033[1;33mhelp\033[0m        │  Show this help message"
+        echo -e "\033[1;34m└─────────────────────────────────────────┘\033[0m\n"
+
+        # Print quick start tip
+        echo -e "\033[1;32m┌─ Quick Start ──────────────────────────┐\033[0m"
+        echo -e "  Check VPN status: \033[1mvpn-tunnel status\033[0m"
+        echo -e "\033[1;32m└────────────────────────────────────────┘\033[0m\n"
         ;;
 esac
