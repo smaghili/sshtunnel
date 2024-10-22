@@ -2,6 +2,7 @@
 
 REPO_URL="https://github.com/smaghili/sshtunnel.git"
 SCRIPT_PATH="/opt/sshtunnel"
+SERVICE_NAME="vpn-tunnel.service"
 
 # Default values
 DEFAULT_TUN_NUMBER=9
@@ -25,6 +26,184 @@ install_package() {
     fi
 }
 
+# Function to uninstall VPN tunnel
+uninstall_vpn() {
+    echo "Uninstalling VPN tunnel..."
+    
+    # Stop and disable the service
+    if systemctl is-active --quiet $SERVICE_NAME; then
+        echo "Stopping VPN service..."
+        sudo systemctl stop $SERVICE_NAME
+        sudo systemctl disable $SERVICE_NAME
+    fi
+    
+    # Remove the service file
+    if [ -f "/etc/systemd/system/$SERVICE_NAME" ]; then
+        echo "Removing service file..."
+        sudo rm -f "/etc/systemd/system/$SERVICE_NAME"
+        sudo systemctl daemon-reload
+    fi
+    
+    # Remove sudoers file
+    if [ -f "/etc/sudoers.d/vpn-tunnel" ]; then
+        echo "Removing sudoers configuration..."
+        sudo rm -f "/etc/sudoers.d/vpn-tunnel"
+    fi
+    
+    # Get tunnel number and IPs from ssh.sh if it exists
+    if [ -f "$SCRIPT_PATH/ssh.sh" ]; then
+        TUN_NUMBER=$(grep "TUN_LOCAL=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        REMOTE_IP=$(grep "HOST=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        SSH_PORT=$(grep "HOST_PORT=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+    fi
+    
+    # Remove tunnel interface if it exists
+    if [ ! -z "$TUN_NUMBER" ]; then
+        echo "Removing tunnel interface..."
+        sudo ip link del "tun$TUN_NUMBER" 2>/dev/null || true
+    fi
+    
+    # Remove tunnel interface on remote server if possible
+    if [ ! -z "$REMOTE_IP" ] && [ ! -z "$SSH_PORT" ]; then
+        echo "Removing tunnel interface on remote server..."
+        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$REMOTE_IP" "
+            if [ ! -z \"$TUN_NUMBER\" ]; then
+                ip link del tun$TUN_NUMBER 2>/dev/null || true
+            fi
+            # Remove main-Euro.sh and its crontab entry
+            rm -f /root/main-Euro.sh
+            crontab -l | grep -v '@reboot /root/main-Euro.sh' | crontab -
+        " 2>/dev/null || true
+    fi
+    
+    # Remove SSH key for the remote server
+    if [ ! -z "$REMOTE_IP" ]; then
+        echo "Removing SSH key for remote server..."
+        ssh-keygen -R "$REMOTE_IP" 2>/dev/null || true
+    fi
+    
+    # Remove script directory
+    if [ -d "$SCRIPT_PATH" ]; then
+        echo "Removing script directory..."
+        sudo rm -rf "$SCRIPT_PATH"
+    fi
+
+    # Remove vpn-tunnel command
+    sudo rm -f /usr/local/bin/vpn-tunnel
+
+    echo "VPN tunnel uninstallation completed successfully!"
+    exit 0
+}
+
+# Function to create vpn-tunnel command
+create_vpn_command() {
+    cat > /tmp/vpn-tunnel << 'EOL'
+#!/bin/bash
+
+SCRIPT_PATH="/opt/sshtunnel"
+SERVICE_NAME="vpn-tunnel.service"
+
+# Function to uninstall VPN tunnel
+uninstall_vpn() {
+    echo "Uninstalling VPN tunnel..."
+    
+    # Stop and disable the service
+    if systemctl is-active --quiet $SERVICE_NAME; then
+        echo "Stopping VPN service..."
+        sudo systemctl stop $SERVICE_NAME
+        sudo systemctl disable $SERVICE_NAME
+    fi
+    
+    # Remove the service file
+    if [ -f "/etc/systemd/system/$SERVICE_NAME" ]; then
+        echo "Removing service file..."
+        sudo rm -f "/etc/systemd/system/$SERVICE_NAME"
+        sudo systemctl daemon-reload
+    fi
+    
+    # Remove sudoers file
+    if [ -f "/etc/sudoers.d/vpn-tunnel" ]; then
+        echo "Removing sudoers configuration..."
+        sudo rm -f "/etc/sudoers.d/vpn-tunnel"
+    fi
+    
+    # Get tunnel number and IPs from ssh.sh if it exists
+    if [ -f "$SCRIPT_PATH/ssh.sh" ]; then
+        TUN_NUMBER=$(grep "TUN_LOCAL=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        REMOTE_IP=$(grep "HOST=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+        SSH_PORT=$(grep "HOST_PORT=" "$SCRIPT_PATH/ssh.sh" | cut -d'=' -f2)
+    fi
+    
+    # Remove tunnel interface if it exists
+    if [ ! -z "$TUN_NUMBER" ]; then
+        echo "Removing tunnel interface..."
+        sudo ip link del "tun$TUN_NUMBER" 2>/dev/null || true
+    fi
+    
+    # Remove tunnel interface on remote server if possible
+    if [ ! -z "$REMOTE_IP" ] && [ ! -z "$SSH_PORT" ]; then
+        echo "Removing tunnel interface on remote server..."
+        ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$REMOTE_IP" "
+            if [ ! -z \"$TUN_NUMBER\" ]; then
+                ip link del tun$TUN_NUMBER 2>/dev/null || true
+            fi
+            # Remove main-Euro.sh and its crontab entry
+            rm -f /root/main-Euro.sh
+            crontab -l | grep -v '@reboot /root/main-Euro.sh' | crontab -
+        " 2>/dev/null || true
+    fi
+    
+    # Remove SSH key for the remote server
+    if [ ! -z "$REMOTE_IP" ]; then
+        echo "Removing SSH key for remote server..."
+        ssh-keygen -R "$REMOTE_IP" 2>/dev/null || true
+    fi
+    
+    # Remove script directory
+    if [ -d "$SCRIPT_PATH" ]; then
+        echo "Removing script directory..."
+        sudo rm -rf "$SCRIPT_PATH"
+    fi
+
+    # Remove vpn-tunnel command
+    sudo rm -f /usr/local/bin/vpn-tunnel
+
+    echo "VPN tunnel uninstallation completed successfully!"
+}
+
+# Help function
+show_help() {
+    echo "Usage: vpn-tunnel [COMMAND]"
+    echo ""
+    echo "Commands:"
+    echo "  install    Install VPN tunnel"
+    echo "  uninstall  Remove VPN tunnel completely"
+    echo "  status     Show VPN tunnel status"
+    echo "  help       Show this help message"
+}
+
+# Main script logic
+case "$1" in
+    "uninstall")
+        uninstall_vpn
+        ;;
+    "status")
+        systemctl status $SERVICE_NAME
+        ;;
+    "help")
+        show_help
+        ;;
+    *)
+        echo "Unknown command. Use 'vpn-tunnel help' for usage information."
+        exit 1
+        ;;
+esac
+EOL
+
+    sudo mv /tmp/vpn-tunnel /usr/local/bin/
+    sudo chmod +x /usr/local/bin/vpn-tunnel
+}
+
 # Function to clone or update the Git repository
 gitClone() {
     sudo mkdir -p "$SCRIPT_PATH"
@@ -43,13 +222,9 @@ gitClone() {
 # Function to get next IP address
 get_next_ip() {
     local ip=$1
-    # Get the first three octets
     local prefix=$(echo $ip | cut -d. -f1-3)
-    # Get the last octet
     local last_octet=$(echo $ip | cut -d. -f4)
-    # Increment the last octet
     local next_octet=$((last_octet + 1))
-    # Return the complete IP
     echo "${prefix}.${next_octet}"
 }
 
@@ -60,33 +235,15 @@ check_tunnel_and_ip() {
     local exists_tunnel=false
     local exists_ip=false
     
-    # Check if tunnel exists
     if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link show tun$tunnel_num" >/dev/null 2>&1; then
         exists_tunnel=true
     fi
     
-    # Check if IP exists
     if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip addr | grep -q '$remote_ip'"; then
         exists_ip=true
     fi
     
     echo "$exists_tunnel $exists_ip"
-}
-
-# Function to find and remove tunnel with specific IP
-cleanup_ip_and_tunnel() {
-    local remote_ip=$1
-    # Find and remove tunnel that has this IP
-    ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
-        # Find tunnel interface that has this IP
-        tunnel_dev=\$(ip addr show | grep '$remote_ip' | awk '{print \$NF}')
-        if [ ! -z \"\$tunnel_dev\" ]; then
-            echo \"Found IP $remote_ip on interface \$tunnel_dev\"
-            # Remove the tunnel interface
-            ip link del \$tunnel_dev 2>/dev/null || true
-            echo \"Removed tunnel \$tunnel_dev\"
-        fi
-    "
 }
 
 # Function to get tunnel number with validation
@@ -96,13 +253,11 @@ get_tunnel_number() {
         read -p "Enter tunnel number (default: $DEFAULT_TUN_NUMBER): " TUN_INPUT
         tunnel_number=${TUN_INPUT:-$DEFAULT_TUN_NUMBER}
         
-        # Verify the tunnel number is valid
         if ! [[ "$tunnel_number" =~ ^[0-9]+$ ]]; then
             echo "Please enter a valid number"
             continue
         fi
         
-        # Check if tunnel exists
         if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip link show tun$tunnel_number" >/dev/null 2>&1; then
             echo "Tunnel number $tunnel_number already exists on the remote server."
             read -p "Do you want to replace it? (y/n): " replace
@@ -124,19 +279,16 @@ get_remote_ip() {
         read -p "Enter remote IP (default: $DEFAULT_IP_REMOTE): " IP_REMOTE_INPUT
         temp_ip=${IP_REMOTE_INPUT:-$DEFAULT_IP_REMOTE}
         
-        # Verify it's a valid IP address format
         if ! [[ "$temp_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Please enter a valid IP address"
             continue
         fi
         
-        # Check if IP exists
         if ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "ip addr | grep -q '$temp_ip'"; then
             echo "Remote IP $temp_ip already exists on the remote server."
             read -p "Do you want to replace it? (y/n): " replace
             if [[ $replace =~ ^[Yy]$ ]]; then
                 echo "Removing existing tunnel with IP $temp_ip..."
-                # First find and remove tunnel with this IP
                 ssh -o StrictHostKeyChecking=no -p "$SSH_PORT" "root@$FOREIGN_IP" "
                     for iface in \$(ip addr show | grep '$temp_ip' | awk '{print \$NF}'); do
                         ip link del \$iface 2>/dev/null || true
@@ -166,11 +318,8 @@ select_installation_type() {
             ;;
         2)
             echo "Custom installation selected..."
-            # Get and validate tunnel number
             get_tunnel_number
             TUN_NUMBER=$TUNNEL_NUMBER
-            
-            # Get and validate remote IP
             get_remote_ip
             IP_REMOTE=$REMOTE_IP
             ;;
@@ -181,7 +330,6 @@ select_installation_type() {
             ;;
     esac
     
-    # Calculate local IP
     IP_LOCAL=$(get_next_ip "$IP_REMOTE")
     echo "Local IP will be set to: $IP_LOCAL"
     IP_MASK=$DEFAULT_IP_MASK
@@ -199,13 +347,11 @@ setup_ssh_keys() {
     local remote_server=$1
     local ssh_port=$2
 
-    # Generate SSH key if it doesn't exist
     if [ ! -f ~/.ssh/id_rsa ]; then
         ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N "" -q
         check_command "Failed to generate SSH key"
     fi
 
-    # Copy the public key to the remote server
     ssh-copy-id -p $ssh_port $remote_server
     check_command "Failed to copy SSH key to remote server"
 
@@ -224,7 +370,7 @@ get_main_interface() {
     
     if [ -z "$interface" ]; then
         echo "Warning: Could not determine the main network interface on $server"
-        interface="eth0"  # Fallback to a default interface
+        interface="eth0"
     fi
     echo "$interface"
 }
@@ -306,7 +452,6 @@ update_sshd_config() {
 
 # Function to create systemd service
 create_systemd_service() {
-    # Ensure ssh.sh and iran-route.sh are executable
     for script in ssh.sh iran-route.sh; do
         if [ -f "$SCRIPT_PATH/$script" ]; then
             sudo chmod +x "$SCRIPT_PATH/$script"
@@ -315,14 +460,12 @@ create_systemd_service() {
         fi
     done
 
-    # Disable and remove old service if exists
     if systemctl is-active --quiet vpn-tunnel.service; then
         sudo systemctl stop vpn-tunnel.service
         sudo systemctl disable vpn-tunnel.service
     fi
     sudo rm -f /etc/systemd/system/vpn-tunnel.service
 
-    # Create new service file
     sudo tee /etc/systemd/system/vpn-tunnel.service > /dev/null << EOL
 [Unit]
 Description=VPN Tunnel Service with Monitor
@@ -345,7 +488,6 @@ EOL
     check_command "Failed to create vpn-tunnel.service"
     echo "Created vpn-tunnel.service successfully."
 
-    # Add sudoers rule to allow running the script without password
     echo "root ALL=(ALL) NOPASSWD: $SCRIPT_PATH/ssh.sh" | sudo tee /etc/sudoers.d/vpn-tunnel > /dev/null
     sudo chmod 0440 /etc/sudoers.d/vpn-tunnel
 }
@@ -355,7 +497,7 @@ create_ssh_script() {
     cat > "$SCRIPT_PATH/ssh.sh" << EOL
 #!/bin/bash
 
-set -e  # Exit immediately if a command exits with a non-zero status.
+set -e
 
 HOST=$FOREIGN_IP
 HOST_PORT=$SSH_PORT
@@ -468,60 +610,71 @@ EOL
     echo "Crontab setup on foreign server completed successfully."
 }
 
-# Main script execution
-echo "Starting VPN tunnel setup for Ubuntu..."
+# Main script execution starts here
+case "$1" in
+    "uninstall")
+        uninstall_vpn
+        ;;
+    *)
+        echo "Starting VPN tunnel setup for Ubuntu..."
 
-# Clone or update the repository
-gitClone
+        # Clone or update the repository
+        gitClone
 
-# First get server details before anything else
-read -p "Enter the IP address of the foreign server: " FOREIGN_IP
-read -p "Enter the SSH port of the foreign server: " SSH_PORT
+        # First get server details before anything else
+        read -p "Enter the IP address of the foreign server: " FOREIGN_IP
+        read -p "Enter the SSH port of the foreign server: " SSH_PORT
 
-# Setup SSH keys
-echo "Setting up SSH keys..."
-setup_ssh_keys "root@$FOREIGN_IP" "$SSH_PORT"
+        # Setup SSH keys
+        echo "Setting up SSH keys..."
+        setup_ssh_keys "root@$FOREIGN_IP" "$SSH_PORT"
 
-# Now select installation type after we have FOREIGN_IP and SSH_PORT
-select_installation_type
+        # Now select installation type after we have FOREIGN_IP and SSH_PORT
+        select_installation_type
 
-# Update EURO_IP in iran-route.sh
-update_iran_route "$FOREIGN_IP"
+        # Update EURO_IP in iran-route.sh
+        update_iran_route "$FOREIGN_IP"
 
-# Get main network interfaces
-LOCAL_INTERFACE=$(get_main_interface "localhost")
-FOREIGN_INTERFACE=$(get_main_interface "root@$FOREIGN_IP")
+        # Get main network interfaces
+        LOCAL_INTERFACE=$(get_main_interface "localhost")
+        FOREIGN_INTERFACE=$(get_main_interface "root@$FOREIGN_IP")
 
-# Update sysctl.conf and sshd_config on both servers
-echo "Updating system configurations..."
-update_sysctl_conf "localhost"
-update_sysctl_conf "root@$FOREIGN_IP"
-update_sshd_config "localhost"
-update_sshd_config "root@$FOREIGN_IP"
-echo "System configurations updated successfully."
+        # Update sysctl.conf and sshd_config on both servers
+        echo "Updating system configurations..."
+        update_sysctl_conf "localhost"
+        update_sysctl_conf "root@$FOREIGN_IP"
+        update_sshd_config "localhost"
+        update_sshd_config "root@$FOREIGN_IP"
+        echo "System configurations updated successfully."
 
-# Create ssh.sh with custom values
-create_ssh_script
+        # Create ssh.sh with custom values
+        create_ssh_script
 
-# Setup foreign server
-setup_foreign_server
+        # Setup foreign server
+        setup_foreign_server
 
-# Create systemd service
-create_systemd_service
+        # Create systemd service
+        create_systemd_service
 
-# Enable and start the VPN service
-echo "Enabling and starting VPN service..."
-sudo systemctl daemon-reload
-sudo systemctl enable vpn-tunnel.service
-sudo systemctl start vpn-tunnel.service
+        # Create vpn-tunnel command
+        create_vpn_command
 
-# Check if the service started successfully
-if ! sudo systemctl is-active --quiet vpn-tunnel.service; then
-    echo "Warning: VPN service may not have started properly. Please check the logs with 'journalctl -u vpn-tunnel.service'"
-else
-    echo "VPN service started successfully."
-fi
+        # Enable and start the VPN service
+        echo "Enabling and starting VPN service..."
+        sudo systemctl daemon-reload
+        sudo systemctl enable vpn-tunnel.service
+        sudo systemctl start vpn-tunnel.service
 
-echo "VPN tunnel setup completed!"
-echo "The VPN service is now configured to start automatically on boot and will be monitored continuously."
-echo "You can check the status of the service with: sudo systemctl status vpn-tunnel.service"
+        # Check if the service started successfully
+        if ! sudo systemctl is-active --quiet vpn-tunnel.service; then
+            echo "Warning: VPN service may not have started properly. Please check the logs with 'journalctl -u vpn-tunnel.service'"
+        else
+            echo "VPN service started successfully."
+        fi
+
+        echo "VPN tunnel setup completed!"
+        echo "The VPN service is now configured to start automatically on boot and will be monitored continuously."
+        echo "You can check the status of the service with: sudo systemctl status vpn-tunnel.service"
+        echo "You can uninstall the VPN tunnel with: vpn-tunnel uninstall"
+        ;;
+esac
