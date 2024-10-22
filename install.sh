@@ -31,7 +31,11 @@ gitClone() {
     if [ ! -d "$SCRIPT_PATH/.git" ]; then
         sudo git clone "$REPO_URL" "$SCRIPT_PATH" || { echo "Failed to clone repository"; exit 1; }
     else
-        (cd "$SCRIPT_PATH" && sudo git pull) || { echo "Failed to update repository"; exit 1; }
+        # Force reset any local changes and pull
+        (cd "$SCRIPT_PATH" && \
+         sudo git fetch origin && \
+         sudo git reset --hard origin/main && \
+         sudo git clean -fd) || { echo "Failed to update repository"; exit 1; }
     fi
     echo "Git repository cloned or updated successfully."
 }
