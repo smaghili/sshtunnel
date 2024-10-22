@@ -677,9 +677,9 @@ case "$1" in
         
         # Print fancy completion banner
         echo -e "\n\033[1;32m╔════════════════════════════════════════╗"
-        echo -e "║                                            ║"
-        echo -e "║      ✓ VPN Tunnel Setup Completed!        ║"
-        echo -e "║                                            ║"
+        echo -e "║                                        ║"
+        echo -e "║      ✓ VPN Tunnel Setup Completed!     ║"
+        echo -e "║                                        ║"
         echo -e "╚════════════════════════════════════════╝\033[0m\n"
 
         # Print usage guide with nice formatting
