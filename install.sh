@@ -687,7 +687,6 @@ case "$1" in
         echo -e "\033[1;37m  Command:\033[0m vpn-tunnel [COMMAND]\n"
         
         echo -e "\033[1;34m┌─ Available Commands ──────────────────────┐\033[0m"
-        echo -e "  \033[1;33minstall\033[0m     │  Install VPN tunnel"
         echo -e "  \033[1;33muninstall\033[0m   │  Remove VPN tunnel completely"
         echo -e "  \033[1;33mstatus\033[0m      │  Show VPN tunnel status"
         echo -e "  \033[1;33mhelp\033[0m        │  Show this help message"
@@ -696,6 +695,6 @@ case "$1" in
         # Print quick start tip
         echo -e "\033[1;32m┌─ Quick Start ──────────────────────────┐\033[0m"
         echo -e "  Check VPN status: \033[1mvpn-tunnel status\033[0m"
-        echo -e "\033[1;32m└────────────────────────────────────────┘\033[0m\n"
+        echo -e "\033[1;32m└──────────────────────────────────────────┘\033[0m\n"
         ;;
 esac
